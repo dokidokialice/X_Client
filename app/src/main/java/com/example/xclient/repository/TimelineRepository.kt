@@ -5,6 +5,7 @@ import com.example.xclient.config.AppConfig
 import com.example.xclient.config.AppConfigLoader
 import com.example.xclient.db.AppDatabase
 import com.example.xclient.db.MediaEntity
+import com.example.xclient.db.TimelineDao
 import com.example.xclient.db.TweetEntity
 import com.example.xclient.db.TweetWithMedia
 import com.example.xclient.network.XApiService
@@ -21,15 +22,13 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.File
 import java.time.Instant
 
-class TimelineRepository private constructor(
+class TimelineRepository internal constructor(
     private val app: Application,
     private val config: AppConfig,
     private val api: XApiService,
-    private val database: AppDatabase,
-    private val httpClient: OkHttpClient
+    private val dao: TimelineDao,
+    private val imageDownloader: (String, String, String) -> String?
 ) {
-    private val dao = database.timelineDao()
-
     fun observeTimeline(): Flow<List<TweetWithMedia>> = dao.observeTimeline()
 
     suspend fun refresh(): Int {
@@ -71,13 +70,13 @@ class TimelineRepository private constructor(
 
             val mediaEntities = mutableListOf<MediaEntity>()
 
-            tweets.forEach { tweet ->
-                tweet.attachments?.media_keys.orEmpty().forEach { key ->
-                    val media = mediaMap[key] ?: return@forEach
+            tweets.forEach tweetLoop@{ tweet ->
+                for (key in tweet.attachments?.media_keys.orEmpty()) {
+                    val media = mediaMap[key] ?: continue
                     when (media.type) {
                         "photo" -> {
                             val sourceUrl = media.url ?: media.preview_image_url
-                            val localPath = sourceUrl?.let { downloadImage(tweet.id, key, it) }
+                            val localPath = sourceUrl?.let { imageDownloader(tweet.id, key, it) }
                             mediaEntities += MediaEntity(
                                 tweetId = tweet.id,
                                 type = "photo",
@@ -117,21 +116,6 @@ class TimelineRepository private constructor(
         }
     }
 
-    private fun downloadImage(tweetId: String, mediaKey: String, url: String): String? {
-        return runCatching {
-            val request = Request.Builder().url(url).build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body ?: return null
-                val dir = File(app.filesDir, "images")
-                if (!dir.exists()) dir.mkdirs()
-                val file = File(dir, "${tweetId}_${mediaKey}.jpg")
-                file.outputStream().use { output -> body.byteStream().copyTo(output) }
-                file.absolutePath
-            }
-        }.getOrNull()
-    }
-
     companion object {
         fun create(application: Application): TimelineRepository {
             val config = AppConfigLoader.load(application)
@@ -157,14 +141,38 @@ class TimelineRepository private constructor(
                     )
                 )
                 .build()
+            val mediaClient = OkHttpClient()
 
             return TimelineRepository(
                 app = application,
                 config = config,
                 api = retrofit.create(XApiService::class.java),
-                database = AppDatabase.build(application),
-                httpClient = OkHttpClient()
+                dao = AppDatabase.build(application).timelineDao(),
+                imageDownloader = { tweetId, mediaKey, url ->
+                    downloadImage(application, mediaClient, tweetId, mediaKey, url)
+                }
             )
+        }
+
+        private fun downloadImage(
+            app: Application,
+            httpClient: OkHttpClient,
+            tweetId: String,
+            mediaKey: String,
+            url: String
+        ): String? {
+            return runCatching {
+                val request = Request.Builder().url(url).build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return null
+                    val body = response.body ?: return null
+                    val dir = File(app.filesDir, "images")
+                    if (!dir.exists()) dir.mkdirs()
+                    val file = File(dir, "${tweetId}_${mediaKey}.jpg")
+                    file.outputStream().use { output -> body.byteStream().copyTo(output) }
+                    file.absolutePath
+                }
+            }.getOrNull()
         }
     }
 }

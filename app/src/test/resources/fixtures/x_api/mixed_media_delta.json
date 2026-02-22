@@ -1,0 +1,64 @@
+{
+  "data": [
+    {
+      "id": "1900000000000000201",
+      "text": "Photo post sample",
+      "author_id": "2001",
+      "created_at": "2026-02-22T10:15:00.000Z",
+      "attachments": {
+        "media_keys": ["3_aaa_photo"]
+      }
+    },
+    {
+      "id": "1900000000000000202",
+      "text": "Video post sample",
+      "author_id": "2002",
+      "created_at": "2026-02-22T10:16:00.000Z",
+      "attachments": {
+        "media_keys": ["7_bbb_video"]
+      }
+    },
+    {
+      "id": "1900000000000000203",
+      "text": "Mixed photo + animated gif sample",
+      "author_id": "2001",
+      "created_at": "2026-02-22T10:17:00.000Z",
+      "attachments": {
+        "media_keys": ["3_ccc_photo", "16_ddd_gif"]
+      }
+    }
+  ],
+  "includes": {
+    "users": [
+      {"id": "2001", "name": "Dora Test", "username": "dora_test"},
+      {"id": "2002", "name": "Evan Test", "username": "evan_test"}
+    ],
+    "media": [
+      {
+        "media_key": "3_aaa_photo",
+        "type": "photo",
+        "url": "https://pbs.twimg.com/media/sample_photo_aaa.jpg"
+      },
+      {
+        "media_key": "7_bbb_video",
+        "type": "video",
+        "preview_image_url": "https://pbs.twimg.com/ext_tw_video_thumb/sample_video_bbb.jpg"
+      },
+      {
+        "media_key": "3_ccc_photo",
+        "type": "photo",
+        "url": "https://pbs.twimg.com/media/sample_photo_ccc.jpg"
+      },
+      {
+        "media_key": "16_ddd_gif",
+        "type": "animated_gif",
+        "preview_image_url": "https://pbs.twimg.com/tweet_video_thumb/sample_gif_ddd.jpg"
+      }
+    ]
+  },
+  "meta": {
+    "result_count": 3,
+    "oldest_id": "1900000000000000201",
+    "newest_id": "1900000000000000203"
+  }
+}

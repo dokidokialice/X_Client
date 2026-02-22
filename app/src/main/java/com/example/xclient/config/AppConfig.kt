@@ -16,7 +16,10 @@ object AppConfigLoader {
     fun load(context: Context): AppConfig {
         val props = Properties()
         context.assets.open(CONFIG_FILE).use { input -> props.load(input) }
+        return fromProperties(props)
+    }
 
+    internal fun fromProperties(props: Properties): AppConfig {
         val listId = props.getProperty("list_id")?.trim().orEmpty()
         val accessToken = props.getProperty("access_token")?.trim().orEmpty()
         val apiBaseUrl = props.getProperty("api_base_url")?.trim().orEmpty()

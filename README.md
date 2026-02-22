@@ -54,6 +54,11 @@
 ## 補足
 
 - 現バージョンでは `access_token` の暗号化は未対応（要件どおり）
+- `app/src/main/assets/x_config.properties` に実トークンを入れたまま公開リポジトリへ push しないでください
 - 動画ファイルそのものは保存しません
 - X API のプラン/権限によりリスト取得エンドポイントが利用できない場合があります
 - Room の DB ファイルはアプリ専用領域（`/data/data/<applicationId>/databases/timeline.db`）に保存されます
+
+## License
+
+MIT License (`LICENSE`)

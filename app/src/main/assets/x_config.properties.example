@@ -1,0 +1,22 @@
+# X API base URL (v2)
+api_base_url=https://api.x.com/
+
+# Target List ID
+auth_type=bearer
+list_id=YOUR_LIST_ID
+
+# Bearer token (no encryption in this version)
+access_token=YOUR_ACCESS_TOKEN
+# Optional: enable auto refresh when access_token expires
+refresh_token=YOUR_REFRESH_TOKEN
+client_id=YOUR_OAUTH2_CLIENT_ID
+# OAuth callback (must match X Developer Portal and AndroidManifest)
+auth_redirect_uri=http://127.0.0.1:8080/callback
+# Space separated scopes
+auth_scopes=tweet.read users.read list.read offline.access
+
+# 10-100
+max_results=50
+
+# true: do not call X API, show local DB only
+offline_mode=false

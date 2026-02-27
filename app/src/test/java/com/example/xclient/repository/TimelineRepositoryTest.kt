@@ -42,7 +42,7 @@ class TimelineRepositoryTest {
     }
 
     @Test
-    fun refresh_deltaFetch_usesLatestIdAndConfiguredMaxResults() = runBlocking {
+    fun refresh_deltaFetch_usesConfiguredMaxResults_withoutSinceIdParam() = runBlocking {
         val dao = FakeTimelineDao().apply {
             existingTweets["1900000000000000100"] = TweetEntity(
                 id = "1900000000000000100",
@@ -61,7 +61,7 @@ class TimelineRepositoryTest {
 
         repository.refresh()
 
-        assertEquals("1900000000000000100", api.lastSinceId)
+        assertNull(api.lastSinceId)
         assertEquals(40, api.lastMaxResults)
     }
 
@@ -87,8 +87,13 @@ class TimelineRepositoryTest {
             config = AppConfig(
                 listId = "test-list",
                 accessToken = "token",
+                refreshToken = "",
+                clientId = "",
+                authRedirectUri = "xclient://oauth/callback",
+                authScopes = "tweet.read users.read list.read offline.access",
                 apiBaseUrl = "https://api.x.com/",
-                maxResults = 50
+                maxResults = 50,
+                offlineMode = false
             ),
             api = api,
             dao = dao,
@@ -137,8 +142,13 @@ class TimelineRepositoryTest {
             config = AppConfig(
                 listId = "test-list",
                 accessToken = "token",
+                refreshToken = "",
+                clientId = "",
+                authRedirectUri = "xclient://oauth/callback",
+                authScopes = "tweet.read users.read list.read offline.access",
                 apiBaseUrl = "https://api.x.com/",
-                maxResults = maxResults
+                maxResults = maxResults,
+                offlineMode = false
             ),
             api = api,
             dao = dao,
@@ -156,6 +166,7 @@ class TimelineRepositoryTest {
             listId: String,
             maxResults: Int,
             sinceId: String?,
+            paginationToken: String?,
             expansions: String,
             tweetFields: String,
             userFields: String,
@@ -196,6 +207,22 @@ class TimelineRepositoryTest {
 
         override suspend fun insertMedia(media: List<MediaEntity>) {
             insertedMedia += media
+        }
+
+        override suspend fun clearMediaLocalPath(localPath: String) {
+            insertedMedia.replaceAll { media ->
+                if (media.localPath == localPath) media.copy(localPath = null) else media
+            }
+        }
+
+        override suspend fun trimTweetsToLimit(limit: Int) {
+            val keepIds = existingTweets.keys
+                .sortedWith(compareByDescending<String> { it.length }.thenByDescending { it })
+                .take(limit)
+                .toSet()
+            existingTweets.keys.retainAll(keepIds)
+            insertedTweets.retainAll { it.id in keepIds }
+            insertedMedia.retainAll { it.tweetId in keepIds }
         }
 
         override suspend fun updateBookmark(tweetId: String, bookmarked: Boolean) {

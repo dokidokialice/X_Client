@@ -6,7 +6,12 @@ import retrofit2.http.Query
 
 data class ListTweetsResponse(
     val data: List<TweetDto>?,
-    val includes: IncludesDto?
+    val includes: IncludesDto?,
+    val meta: MetaDto?
+)
+
+data class MetaDto(
+    val next_token: String?
 )
 
 data class TweetDto(
@@ -45,6 +50,7 @@ interface XApiService {
         @Path("id") listId: String,
         @Query("max_results") maxResults: Int,
         @Query("since_id") sinceId: String?,
+        @Query("pagination_token") paginationToken: String?,
         @Query("expansions") expansions: String = "attachments.media_keys,author_id",
         @Query("tweet.fields") tweetFields: String = "id,text,author_id,created_at,attachments",
         @Query("user.fields") userFields: String = "id,name,username",

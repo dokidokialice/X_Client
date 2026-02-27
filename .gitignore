@@ -5,6 +5,7 @@ build/
 
 # Local config
 local.properties
+app/src/main/assets/x_config.properties
 
 # IDE
 .idea/

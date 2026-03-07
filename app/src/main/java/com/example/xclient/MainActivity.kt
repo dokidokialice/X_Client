@@ -145,7 +145,7 @@ private fun AuthGateScreen(
     when (authState.phase) {
         AuthPhase.READY -> {
             val viewModel: MainViewModel = viewModel(factory = viewModelFactory)
-            TimelineScreen(viewModel = viewModel)
+            TimelineScreen(viewModel = viewModel, onStartLogin = onStartLogin)
         }
         AuthPhase.NEEDS_LOGIN -> {
             LaunchedEffect(Unit) { onStartLogin() }
@@ -190,7 +190,7 @@ private fun CenterMessage(
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
-private fun TimelineScreen(viewModel: MainViewModel = viewModel()) {
+private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin: () -> Unit = {}) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
@@ -206,7 +206,13 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel()) {
     LaunchedEffect(state.errorMessage, state.blockingErrorMessage) {
         if (state.blockingErrorMessage != null) return@LaunchedEffect
         val message = state.errorMessage ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar("同期エラー: $message")
+        val result = snackbarHostState.showSnackbar(
+            message = "同期エラー: $message",
+            actionLabel = "再ログイン"
+        )
+        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+            onStartLogin()
+        }
     }
 
     val pullRefreshState = rememberPullRefreshState(
@@ -252,6 +258,9 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel()) {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     M3Text(text = blockingMessage, style = MaterialTheme.typography.bodyLarge)
+                    Button(onClick = onStartLogin) {
+                        M3Text(text = "再ログイン")
+                    }
                     Button(onClick = { (context as? Activity)?.finishAffinity() }) {
                         M3Text(text = "閉じる")
                     }

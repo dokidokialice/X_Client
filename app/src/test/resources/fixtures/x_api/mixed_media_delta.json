@@ -30,7 +30,7 @@
   ],
   "includes": {
     "users": [
-      {"id": "2001", "name": "Dora Test", "username": "dora_test"},
+      {"id": "2001", "name": "Dora Test", "username": "dora_test", "profile_image_url": "https://pbs.twimg.com/profile_images/2001/photo.jpg"},
       {"id": "2002", "name": "Evan Test", "username": "evan_test"}
     ],
     "media": [

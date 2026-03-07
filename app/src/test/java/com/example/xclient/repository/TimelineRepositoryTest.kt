@@ -40,7 +40,7 @@ class TimelineRepositoryTest {
     }
 
     @Test
-    fun refresh_deltaFetch_usesConfiguredMaxResults_withoutSinceIdParam() = runBlocking {
+    fun refresh_deltaFetch_usesConfiguredMaxResults() = runBlocking {
         val dao = FakeTimelineDao().apply {
             existingTweets["1900000000000000100"] = TweetEntity(
                 id = "1900000000000000100",
@@ -117,6 +117,35 @@ class TimelineRepositoryTest {
     }
 
     @Test
+    fun refresh_mapsAuthorProfileImageUrl() = runBlocking {
+        val dao = FakeTimelineDao()
+        val api = RecordingApiService(FixtureLoader.loadListTweetsResponse("mixed_media_delta.json"))
+        val repository = newRepository(dao, api)
+
+        repository.refresh()
+
+        val tweetById = dao.insertedTweets.associateBy { it.id }
+        // user 2001 has profile_image_url in fixture
+        assertEquals(
+            "https://pbs.twimg.com/profile_images/2001/photo.jpg",
+            tweetById.getValue("1900000000000000201").authorProfileImageUrl
+        )
+        // user 2002 has no profile_image_url in fixture
+        assertEquals(null, tweetById.getValue("1900000000000000202").authorProfileImageUrl)
+    }
+
+    @Test
+    fun refresh_callsTrimAfterInsert() = runBlocking {
+        val dao = FakeTimelineDao()
+        val api = RecordingApiService(FixtureLoader.loadListTweetsResponse("mixed_media_delta.json"))
+        val repository = newRepository(dao, api)
+
+        repository.refresh()
+
+        assertTrue(dao.trimCallCount > 0)
+    }
+
+    @Test
     fun refresh_preservesBookmarkStateFromDao() = runBlocking {
         val dao = FakeTimelineDao().apply {
             bookmarkedIds += "1900000000000000201"
@@ -178,6 +207,7 @@ class TimelineRepositoryTest {
         val bookmarkedIds: MutableSet<String> = linkedSetOf()
         val insertedTweets: MutableList<TweetEntity> = mutableListOf()
         val insertedMedia: MutableList<MediaEntity> = mutableListOf()
+        var trimCallCount: Int = 0
 
         override fun observeTimeline(): Flow<List<TweetWithMedia>> = flowOf(emptyList())
 
@@ -211,6 +241,7 @@ class TimelineRepositoryTest {
         }
 
         override suspend fun trimTweetsToLimit(limit: Int) {
+            trimCallCount++
             val keepIds = existingTweets.keys
                 .sortedWith(compareByDescending<String> { it.length }.thenByDescending { it })
                 .take(limit)

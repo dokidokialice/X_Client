@@ -89,7 +89,7 @@ class OAuthManager(
     }
 
     fun startLogin() {
-        if (_authState.value.phase !in setOf(AuthPhase.NEEDS_LOGIN, AuthPhase.BLOCKED)) return
+        if (_authState.value.phase !in setOf(AuthPhase.NEEDS_LOGIN, AuthPhase.BLOCKED, AuthPhase.READY)) return
         if (!config.canStartOAuthLogin) {
             _authState.value = AuthGateState(
                 phase = AuthPhase.BLOCKED,

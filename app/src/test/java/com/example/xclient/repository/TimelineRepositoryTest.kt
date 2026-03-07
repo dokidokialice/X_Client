@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -37,7 +36,6 @@ class TimelineRepositoryTest {
 
         assertEquals(99, count)
         assertEquals(99, api.lastMaxResults)
-        assertNull(api.lastSinceId)
         assertEquals(99, dao.insertedTweets.size)
     }
 
@@ -49,6 +47,7 @@ class TimelineRepositoryTest {
                 text = "existing",
                 authorName = "ex",
                 authorUsername = "ex",
+                authorProfileImageUrl = null,
                 createdAt = 1L,
                 permalink = "https://x.com/i/web/status/1900000000000000100",
                 hasVideo = false,
@@ -61,7 +60,6 @@ class TimelineRepositoryTest {
 
         repository.refresh()
 
-        assertNull(api.lastSinceId)
         assertEquals(40, api.lastMaxResults)
     }
 
@@ -159,13 +157,11 @@ class TimelineRepositoryTest {
     private class RecordingApiService(
         private val response: ListTweetsResponse
     ) : XApiService {
-        var lastSinceId: String? = null
         var lastMaxResults: Int? = null
 
         override suspend fun getListTweets(
             listId: String,
             maxResults: Int,
-            sinceId: String?,
             paginationToken: String?,
             expansions: String,
             tweetFields: String,
@@ -173,7 +169,6 @@ class TimelineRepositoryTest {
             mediaFields: String
         ): ListTweetsResponse {
             lastMaxResults = maxResults
-            lastSinceId = sinceId
             return response
         }
     }

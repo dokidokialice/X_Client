@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val appConfig = runCatching { AppConfigLoader.load(applicationContext) }.getOrElse { throwable ->
             setContent {
-                AppTheme {
+                AppTheme(dynamicColor = false) {
                     CenterMessage(
                         message = "設定読み込みに失敗しました: ${throwable.message}",
                         primaryActionLabel = "閉じる",
@@ -115,7 +115,7 @@ class MainActivity : ComponentActivity() {
         manager.handleAuthCallback(intent)
 
         setContent {
-            AppTheme {
+            AppTheme(dynamicColor = false) {
                 AuthGateScreen(
                     viewModelFactory = MainViewModelFactory(
                         (application as XClientApplication).appContainer.timelineRepository

@@ -9,11 +9,12 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TimelineDao {
+    // Snowflake ID は数値文字列なので長さ降順 → 辞書順降順 で新着順ソート
     @Transaction
-    @Query("SELECT * FROM tweets ORDER BY CAST(id AS INTEGER) DESC")
+    @Query("SELECT * FROM tweets ORDER BY length(id) DESC, id DESC")
     fun observeTimeline(): Flow<List<TweetWithMedia>>
 
-    @Query("SELECT id FROM tweets ORDER BY CAST(id AS INTEGER) DESC LIMIT 1")
+    @Query("SELECT id FROM tweets ORDER BY length(id) DESC, id DESC LIMIT 1")
     suspend fun getLatestTweetId(): String?
 
     @Query("SELECT COUNT(*) FROM tweets")
@@ -34,9 +35,10 @@ interface TimelineDao {
     @Query("UPDATE media SET localPath = NULL WHERE localPath = :localPath")
     suspend fun clearMediaLocalPath(localPath: String)
 
+    // 新着 :limit 件を残し、超過分を削除。LIMIT -1 OFFSET の代わりに NOT IN を使用
     @Query(
-        "DELETE FROM tweets WHERE id IN (" +
-            "SELECT id FROM tweets ORDER BY CAST(id AS INTEGER) DESC LIMIT -1 OFFSET :limit" +
+        "DELETE FROM tweets WHERE id NOT IN (" +
+            "SELECT id FROM tweets ORDER BY length(id) DESC, id DESC LIMIT :limit" +
             ")"
     )
     suspend fun trimTweetsToLimit(limit: Int)

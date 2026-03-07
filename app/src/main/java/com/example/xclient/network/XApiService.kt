@@ -34,7 +34,8 @@ data class IncludesDto(
 data class UserDto(
     val id: String,
     val name: String,
-    val username: String
+    val username: String,
+    val profile_image_url: String?
 )
 
 data class MediaDto(
@@ -49,11 +50,10 @@ interface XApiService {
     suspend fun getListTweets(
         @Path("id") listId: String,
         @Query("max_results") maxResults: Int,
-        @Query("since_id") sinceId: String?,
         @Query("pagination_token") paginationToken: String?,
         @Query("expansions") expansions: String = "attachments.media_keys,author_id",
         @Query("tweet.fields") tweetFields: String = "id,text,author_id,created_at,attachments",
-        @Query("user.fields") userFields: String = "id,name,username",
+        @Query("user.fields") userFields: String = "id,name,username,profile_image_url",
         @Query("media.fields") mediaFields: String = "media_key,type,url,preview_image_url"
     ): ListTweetsResponse
 }

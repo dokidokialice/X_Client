@@ -25,6 +25,18 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Create config file for build
+        env:
+          X_LIST_ID: ${{ secrets.X_LIST_ID }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_API_BASE_URL: ${{ secrets.X_API_BASE_URL }}
+        run: |
+          cat > app/src/main/assets/x_config.properties << EOF
+          list_id=${X_LIST_ID:-ci_dummy_list_id}
+          access_token=${X_ACCESS_TOKEN:-ci_dummy_access_token}
+          api_base_url=${X_API_BASE_URL:-https://api.x.com/}
+          EOF
+
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
@@ -55,6 +67,18 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x gradlew
+
+      - name: Create config file for build
+        env:
+          X_LIST_ID: ${{ secrets.X_LIST_ID }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_API_BASE_URL: ${{ secrets.X_API_BASE_URL }}
+        run: |
+          cat > app/src/main/assets/x_config.properties << EOF
+          list_id=${X_LIST_ID:-ci_dummy_list_id}
+          access_token=${X_ACCESS_TOKEN:-ci_dummy_access_token}
+          api_base_url=${X_API_BASE_URL:-https://api.x.com/}
+          EOF
 
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug

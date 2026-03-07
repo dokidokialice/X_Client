@@ -11,6 +11,7 @@ data class TweetEntity(
     val text: String,
     val authorName: String,
     val authorUsername: String,
+    val authorProfileImageUrl: String?,
     val createdAt: Long,
     val permalink: String,
     val hasVideo: Boolean,

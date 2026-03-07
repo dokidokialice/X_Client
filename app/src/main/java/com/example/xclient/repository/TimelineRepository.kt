@@ -15,6 +15,8 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import com.example.xclient.BuildConfig
+import com.example.xclient.auth.createEncryptedPrefs
 import okhttp3.Authenticator
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -63,7 +65,6 @@ class TimelineRepository internal constructor(
                 val response = api.getListTweets(
                     listId = config.listId,
                     maxResults = maxResults,
-                    sinceId = null,
                     paginationToken = paginationToken
                 )
 
@@ -98,6 +99,7 @@ class TimelineRepository internal constructor(
                     text = tweet.text,
                     authorName = user?.name ?: "Unknown",
                     authorUsername = user?.username ?: "unknown",
+                    authorProfileImageUrl = user?.profile_image_url,
                     createdAt = tweet.created_at?.let { Instant.parse(it).toEpochMilli() } ?: 0L,
                     permalink = "https://x.com/i/web/status/${tweet.id}",
                     hasVideo = tweet.attachments?.media_keys.orEmpty().any { key ->
@@ -213,7 +215,11 @@ class TimelineRepository internal constructor(
                         .header("Authorization", "Bearer $refreshedToken")
                         .build()
                 })
-                .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+                .apply {
+                    if (BuildConfig.DEBUG) {
+                        addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+                    }
+                }
                 .build()
 
             val retrofit = Retrofit.Builder()
@@ -290,7 +296,8 @@ private class TokenManager(
     private val config: AppConfig,
     private val tokenClient: OkHttpClient
 ) {
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    // EncryptedSharedPreferences でトークンを暗号化保存
+    private val prefs = createEncryptedPrefs(context, PREFS_NAME)
 
     @Volatile
     private var accessToken: String = prefs.getString(KEY_ACCESS_TOKEN, null)
@@ -302,7 +309,12 @@ private class TokenManager(
         ?.takeIf { it.isNotBlank() }
         ?: config.refreshToken
 
-    fun currentAccessToken(): String = accessToken
+    fun currentAccessToken(): String {
+        // 同セッション中に OAuth でトークンが書き込まれた場合もピックアップする
+        val stored = prefs.getString(KEY_ACCESS_TOKEN, null)?.takeIf { it.isNotBlank() }
+        if (stored != null && stored != accessToken) accessToken = stored
+        return accessToken
+    }
 
     @Synchronized
     fun refreshTokenAndGetAccessToken(usedToken: String?): String? {

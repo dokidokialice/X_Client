@@ -18,12 +18,14 @@ data class TimelineUiState(
     val refreshing: Boolean = false,
     val errorMessage: String? = null,
     val blockingErrorMessage: String? = null,
-    val lastFetchedCount: Int = 0
+    val lastFetchedCount: Int = 0,
+    val newPostsCount: Int = 0
 )
 
 class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
     private val _uiState = MutableStateFlow(TimelineUiState())
     val uiState: StateFlow<TimelineUiState> = _uiState.asStateFlow()
+    private var lastSeenTopId: String? = null
 
     init {
         observeTimeline()
@@ -67,9 +69,22 @@ class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
     private fun observeTimeline() {
         viewModelScope.launch {
             repository.observeTimeline().collect { rows ->
-                _uiState.update { it.copy(items = rows.map { row -> row.toTimelineItem() }) }
+                val items = rows.map { it.toTimelineItem() }
+                if (lastSeenTopId == null && items.isNotEmpty()) {
+                    lastSeenTopId = items.first().id
+                }
+                val newCount = lastSeenTopId
+                    ?.let { topId -> items.indexOfFirst { it.id == topId } }
+                    ?.coerceAtLeast(0) ?: 0
+                _uiState.update { it.copy(items = items, newPostsCount = newCount) }
             }
         }
+    }
+
+    fun markAsRead() {
+        val topId = _uiState.value.items.firstOrNull()?.id ?: return
+        lastSeenTopId = topId
+        _uiState.update { it.copy(newPostsCount = 0) }
     }
 
     private fun TweetWithMedia.toTimelineItem(): TimelineItem {
@@ -77,6 +92,7 @@ class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
             id = tweet.id,
             authorName = tweet.authorName,
             authorUsername = tweet.authorUsername,
+            authorProfileImageUrl = tweet.authorProfileImageUrl,
             text = tweet.text,
             createdAt = tweet.createdAt,
             isBookmarked = tweet.isBookmarked,

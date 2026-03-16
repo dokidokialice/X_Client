@@ -50,8 +50,10 @@ object AppConfigLoader {
 
         require(listId.isNotBlank()) { "list_id is required in $CONFIG_FILE" }
         require(apiBaseUrl.isNotBlank()) { "api_base_url is required in $CONFIG_FILE" }
-        require(accessToken.isNotBlank() || clientId.isNotBlank()) {
-            "Either access_token or client_id is required in $CONFIG_FILE"
+        if (!offlineMode) {
+            require(accessToken.isNotBlank() || clientId.isNotBlank()) {
+                "Either access_token or client_id is required in $CONFIG_FILE"
+            }
         }
         if (refreshToken.isNotBlank()) {
             require(clientId.isNotBlank()) { "client_id is required when refresh_token is set in $CONFIG_FILE" }

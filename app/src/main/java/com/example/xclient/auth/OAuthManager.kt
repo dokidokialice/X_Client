@@ -63,6 +63,10 @@ class OAuthManager(
     }
 
     fun init() {
+        if (config.offlineMode) {
+            _authState.value = AuthGateState(phase = AuthPhase.READY)
+            return
+        }
         val hasToken = !authPrefs.getString(KEY_ACCESS_TOKEN, "").isNullOrBlank()
             || config.accessToken.isNotBlank()
         _authState.value = when {
@@ -89,6 +93,10 @@ class OAuthManager(
     }
 
     fun startLogin() {
+        if (config.offlineMode) {
+            _authState.value = AuthGateState(phase = AuthPhase.READY)
+            return
+        }
         if (_authState.value.phase !in setOf(AuthPhase.NEEDS_LOGIN, AuthPhase.BLOCKED, AuthPhase.READY)) return
         if (!config.canStartOAuthLogin) {
             _authState.value = AuthGateState(

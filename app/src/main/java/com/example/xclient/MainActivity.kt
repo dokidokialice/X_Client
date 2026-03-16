@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
@@ -61,6 +62,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -82,6 +84,7 @@ import com.example.xclient.data.TimelineItem
 import com.example.xclient.ui.AppTheme
 import com.example.xclient.ui.MainViewModel
 import com.example.xclient.ui.MainViewModelFactory
+import com.example.xclient.ui.TimelineUiState
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -192,15 +195,42 @@ private fun CenterMessage(
 @Composable
 private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin: () -> Unit = {}) {
     val state by viewModel.uiState.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val appContext = context.applicationContext
     val prefs = remember(appContext) {
         appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
-    var restoredInitialPosition by rememberSaveable { mutableStateOf(false) }
+    TimelineScreenContent(
+        state = state,
+        onRefresh = { viewModel.refresh() },
+        onToggleBookmark = { item -> viewModel.toggleBookmark(item) },
+        onMarkAsRead = { viewModel.markAsRead() },
+        onStartLogin = onStartLogin,
+        onClose = { (context as? Activity)?.finishAffinity() },
+        prefs = prefs
+    )
+}
+
+@OptIn(ExperimentalMaterialApi::class)
+@Composable
+internal fun TimelineScreenContent(
+    state: TimelineUiState,
+    onRefresh: () -> Unit,
+    onToggleBookmark: (TimelineItem) -> Unit,
+    onMarkAsRead: () -> Unit,
+    onStartLogin: () -> Unit,
+    onClose: () -> Unit,
+    prefs: android.content.SharedPreferences,
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState()
+) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val latestState by rememberUpdatedState(state)
+    var initialPositionRestoreStarted by rememberSaveable { mutableStateOf(false) }
+    var initialPositionRestoreCompleted by rememberSaveable { mutableStateOf(false) }
+    var viewportAnchorId by rememberSaveable { mutableStateOf<String?>(null) }
+    var viewportAnchorOffset by rememberSaveable { mutableStateOf(0) }
+    var viewportWasAtTop by rememberSaveable { mutableStateOf(true) }
     var expandedImagePath by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.errorMessage, state.blockingErrorMessage) {
@@ -217,30 +247,46 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin:
 
     val pullRefreshState = rememberPullRefreshState(
         refreshing = state.refreshing,
-        onRefresh = { viewModel.refresh() }
+        onRefresh = onRefresh
     )
 
     // state.items を key にすると、多数の投稿到着時に scrollToItem 中にキャンセルされて
     // restoredInitialPosition が true にならず先頭に飛ぶ競合が起きる。
     // LaunchedEffect(Unit) で一度だけ起動し、snapshotFlow で最初の非空リストを待つことで解決する。
     LaunchedEffect(Unit) {
-        snapshotFlow { state.items }.first { it.isNotEmpty() }
-        if (restoredInitialPosition) return@LaunchedEffect
-        restoredInitialPosition = true  // scrollToItem の前にセットして再入を防ぐ
+        snapshotFlow { latestState.items }.first { it.isNotEmpty() }
+        if (initialPositionRestoreStarted) return@LaunchedEffect
+        initialPositionRestoreStarted = true  // scrollToItem の前にセットして再入を防ぐ
         val anchorTweetId = prefs.getString(KEY_ANCHOR_TWEET_ID, null)
         val anchorIndex = anchorTweetId
-            ?.let { targetId -> state.items.indexOfFirst { it.id == targetId } }
+            ?.let { targetId -> latestState.items.indexOfFirst { it.id == targetId } }
             ?.takeIf { it >= 0 }
             ?: 0
         listState.scrollToItem(anchorIndex)
+        initialPositionRestoreCompleted = true
+    }
+
+    LaunchedEffect(state.items, initialPositionRestoreCompleted) {
+        if (!initialPositionRestoreCompleted || viewportWasAtTop) return@LaunchedEffect
+        val anchorId = viewportAnchorId ?: return@LaunchedEffect
+        val targetIndex = latestState.items.indexOfFirst { it.id == anchorId }
+        if (targetIndex >= 0 && targetIndex != listState.firstVisibleItemIndex) {
+            listState.scrollToItem(targetIndex, viewportAnchorOffset)
+        }
     }
 
     // state.items をキーにすると投稿追加のたびに再起動し、保存タイミングがずれる。
     // state は読み取り時点の最新値を返すため、キーから除外しても正しく動作する。
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
-            if (index == 0) viewModel.markAsRead()
-            val anchorId = state.items.getOrNull(index)?.id ?: return@collect
+    LaunchedEffect(listState, initialPositionRestoreCompleted) {
+        if (!initialPositionRestoreCompleted) return@LaunchedEffect
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            viewportWasAtTop = index == 0
+            viewportAnchorOffset = offset
+            if (index == 0) onMarkAsRead()
+            val anchorId = latestState.items.getOrNull(index)?.id ?: return@collect
+            viewportAnchorId = anchorId
             prefs.edit().putString(KEY_ANCHOR_TWEET_ID, anchorId).apply()
         }
     }
@@ -261,7 +307,7 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin:
                     Button(onClick = onStartLogin) {
                         M3Text(text = "再ログイン")
                     }
-                    Button(onClick = { (context as? Activity)?.finishAffinity() }) {
+                    Button(onClick = onClose) {
                         M3Text(text = "閉じる")
                     }
                 }
@@ -277,14 +323,16 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin:
         ) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(TIMELINE_LIST_TAG),
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(state.items, key = { it.id }) { item ->
                     TimelineCard(
                         item = item,
-                        onToggleBookmark = { viewModel.toggleBookmark(item) },
+                        onToggleBookmark = { onToggleBookmark(item) },
                         onImageTap = { path -> expandedImagePath = path }
                     )
                 }
@@ -299,7 +347,7 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin:
             if (state.newPostsCount > 0 && !state.refreshing) {
                 Button(
                     onClick = {
-                        viewModel.markAsRead()
+                        onMarkAsRead()
                         scope.launch { listState.scrollToItem(0) }
                     },
                     modifier = Modifier
@@ -495,6 +543,7 @@ private fun formatDate(epochMillis: Long): String {
 
 private const val PREFS_NAME = "timeline_prefs"
 private const val KEY_ANCHOR_TWEET_ID = "anchor_tweet_id"
+internal const val TIMELINE_LIST_TAG = "timeline_list"
 
 private fun openInXClient(context: Context, permalink: String) {
     val tweetId = extractTweetId(permalink)

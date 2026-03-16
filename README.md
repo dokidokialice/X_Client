@@ -16,7 +16,7 @@
    - `auth_scopes` (OAuthスコープ)
    - `api_base_url`
    - `max_results`
-   - `offline_mode` (`true` の場合はX APIを呼ばずローカルDBのみ表示)
+   - `offline_mode` (`true` の場合はX APIを呼ばず、OAuth認証も行わず、既存の最新99件を残したまま同梱の200件テストデータをローカルDBへ投入して表示)
 2. 指定リストを X API `GET /2/lists/{id}/tweets` で取得
 3. 初回起動（DB未作成/投稿0件時）は 99 件取得
 4. 2回目以降は Room の最新投稿 ID を基準に、新着のみ差分同期
@@ -58,7 +58,12 @@
    - X Developer Portal の Callback URL に `auth_redirect_uri` と同じ値を登録
 5. access token を自動再発行したい場合は `refresh_token` と `client_id` を設定
 6. `x_config.properties` は `.gitignore` 対象のため、ローカルでのみ管理
-7. 必要に応じて `offline_mode=true` に設定（オフライン閲覧）
+7. 実機で大量受信を再現したい場合は `offline_mode=true` に設定
+   - 起動時/更新時に同梱の 200 件テストデータを読み込みます
+   - `offline_mode=true` の間は `access_token` / `client_id` が空でも起動できます
+   - `false -> true` 切り替え時は、既存タイムラインの最新 99 件だけ残してテストデータを追加します
+   - `true -> false` に戻したあとは、同梱テストデータを取り除いて通常同期へ戻ります
+   - オフライン表示用データは `app/src/main/assets/fixtures/x_api/large_delta_200_page_1.json` と `app/src/main/assets/fixtures/x_api/large_delta_200_page_2.json` です
 
 ## ビルド
 

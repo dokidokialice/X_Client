@@ -45,4 +45,19 @@ class AppConfigLoaderTest {
 
         assertTrue(error is IllegalArgumentException)
     }
+
+    @Test
+    fun fromProperties_allowsOfflineModeWithoutAuthSettings() {
+        val props = Properties().apply {
+            setProperty("list_id", "12345")
+            setProperty("api_base_url", "https://api.x.com/")
+            setProperty("offline_mode", "true")
+        }
+
+        val config = AppConfigLoader.fromProperties(props)
+
+        assertTrue(config.offlineMode)
+        assertEquals("", config.accessToken)
+        assertEquals("", config.clientId)
+    }
 }

@@ -35,6 +35,12 @@ interface TimelineDao {
     @Query("UPDATE media SET localPath = NULL WHERE localPath = :localPath")
     suspend fun clearMediaLocalPath(localPath: String)
 
+    @Query("DELETE FROM tweets")
+    suspend fun clearTimeline()
+
+    @Query("DELETE FROM tweets WHERE id IN (:tweetIds)")
+    suspend fun deleteTweetsByIds(tweetIds: List<String>)
+
     // 新着 :limit 件を残し、超過分を削除。LIMIT -1 OFFSET の代わりに NOT IN を使用
     @Query(
         "DELETE FROM tweets WHERE id NOT IN (" +

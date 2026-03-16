@@ -2,6 +2,7 @@ package com.example.xclient.repository
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import com.example.xclient.config.AppConfig
 import com.example.xclient.config.AppConfigLoader
 import com.example.xclient.db.AppDatabase
@@ -40,118 +41,94 @@ class TimelineRepository internal constructor(
 ) {
     private val maxStoredTweets = 4999
     private val maxStoredImageBytes = 1L * 1024 * 1024 * 1024 // 1GB
+    private val syncPrefs: SharedPreferences by lazy {
+        app.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
     fun observeTimeline(): Flow<List<TweetWithMedia>> = dao.observeTimeline()
 
     suspend fun refresh(): Int {
         return withContext(Dispatchers.IO) {
-            if (config.offlineMode) {
-                dao.trimTweetsToLimit(maxStoredTweets)
-                trimImagesToLimit(maxStoredImageBytes)
-                return@withContext 0
-            }
-
-            val tweetCount = dao.getTweetCount()
-            val isInitialFetch = tweetCount == 0
-            val latestLocalTweetId = if (isInitialFetch) null else dao.getLatestTweetId()
-            val maxResults = if (isInitialFetch) 99 else config.maxResults
-            val tweets = mutableListOf<com.example.xclient.network.TweetDto>()
-            val users = linkedMapOf<String, com.example.xclient.network.UserDto>()
-            val mediaMap = linkedMapOf<String, com.example.xclient.network.MediaDto>()
-            val seenNextTokens = mutableSetOf<String>()
-            var paginationToken: String? = null
-
-            while (true) {
-                val response = api.getListTweets(
-                    listId = config.listId,
-                    maxResults = maxResults,
-                    paginationToken = paginationToken
-                )
-
-                val pageTweets = response.data.orEmpty()
-                val newTweets = if (latestLocalTweetId == null) {
-                    pageTweets
-                } else {
-                    pageTweets.filter { isNewerTweetId(it.id, latestLocalTweetId) }
+            val wasOffline = wasOfflineModeEnabled()
+            try {
+                if (config.offlineMode) {
+                    val count = seedOfflineTimeline(
+                        preserveExistingCount = if (!wasOffline) 99 else null
+                    )
+                    dao.trimTweetsToLimit(maxStoredTweets)
+                    trimImagesToLimit(maxStoredImageBytes)
+                    return@withContext count
                 }
-                tweets += newTweets
-                response.includes?.users.orEmpty().forEach { users[it.id] = it }
-                response.includes?.media.orEmpty().forEach { mediaMap[it.media_key] = it }
 
-                if (isInitialFetch) break
-                if (latestLocalTweetId != null && newTweets.size < pageTweets.size) break
-                val nextToken = response.meta?.next_token?.trim().orEmpty()
-                if (nextToken.isBlank() || !seenNextTokens.add(nextToken)) break
-                paginationToken = nextToken
-            }
+                if (wasOffline) {
+                    removeOfflineFixtureTweets()
+                }
 
-            if (tweets.isEmpty()) {
-                dao.trimTweetsToLimit(maxStoredTweets)
-                trimImagesToLimit(maxStoredImageBytes)
-                return@withContext 0
-            }
-            val bookmarkedIds = dao.getBookmarkedTweetIds(tweets.map { it.id }).toSet()
+                val tweetCount = dao.getTweetCount()
+                val isInitialFetch = tweetCount == 0
+                val latestLocalTweetId = if (isInitialFetch) null else dao.getLatestTweetId()
+                val maxResults = if (isInitialFetch) 99 else config.maxResults
+                val tweets = mutableListOf<com.example.xclient.network.TweetDto>()
+                val users = linkedMapOf<String, com.example.xclient.network.UserDto>()
+                val mediaMap = linkedMapOf<String, com.example.xclient.network.MediaDto>()
+                val seenNextTokens = mutableSetOf<String>()
+                var paginationToken: String? = null
 
-            val tweetEntities = tweets.map { tweet ->
-                val user = tweet.author_id?.let { users[it] }
-                TweetEntity(
-                    id = tweet.id,
-                    text = tweet.text,
-                    authorName = user?.name ?: "Unknown",
-                    authorUsername = user?.username ?: "unknown",
-                    authorProfileImageUrl = user?.profile_image_url,
-                    createdAt = tweet.created_at?.let { Instant.parse(it).toEpochMilli() } ?: 0L,
-                    permalink = "https://x.com/i/web/status/${tweet.id}",
-                    hasVideo = tweet.attachments?.media_keys.orEmpty().any { key ->
-                        val type = mediaMap[key]?.type
-                        type == "video" || type == "animated_gif"
-                    },
-                    isBookmarked = tweet.id in bookmarkedIds,
-                    syncedAt = System.currentTimeMillis()
-                )
-            }
+                while (true) {
+                    val response = api.getListTweets(
+                        listId = config.listId,
+                        maxResults = maxResults,
+                        paginationToken = paginationToken
+                    )
 
-            val mediaEntities = mutableListOf<MediaEntity>()
-
-            tweets.forEach tweetLoop@{ tweet ->
-                for (key in tweet.attachments?.media_keys.orEmpty()) {
-                    val media = mediaMap[key] ?: continue
-                    when (media.type) {
-                        "photo" -> {
-                            val sourceUrl = media.url ?: media.preview_image_url
-                            val localPath = sourceUrl?.let { imageDownloader(tweet.id, key, it) }
-                            mediaEntities += MediaEntity(
-                                tweetId = tweet.id,
-                                type = "photo",
-                                localPath = localPath,
-                                remoteUrl = sourceUrl
-                            )
-                        }
-
-                        "video", "animated_gif" -> {
-                            mediaEntities += MediaEntity(
-                                tweetId = tweet.id,
-                                type = media.type,
-                                localPath = null,
-                                remoteUrl = "https://x.com/i/web/status/${tweet.id}"
-                            )
-                        }
+                    val pageTweets = response.data.orEmpty()
+                    val newTweets = if (latestLocalTweetId == null) {
+                        pageTweets
+                    } else {
+                        pageTweets.filter { isNewerTweetId(it.id, latestLocalTweetId) }
                     }
+                    tweets += newTweets
+                    response.includes?.users.orEmpty().forEach { users[it.id] = it }
+                    response.includes?.media.orEmpty().forEach { mediaMap[it.media_key] = it }
+
+                    if (isInitialFetch) break
+                    if (latestLocalTweetId != null && newTweets.size < pageTweets.size) break
+                    val nextToken = response.meta?.next_token?.trim().orEmpty()
+                    if (nextToken.isBlank() || !seenNextTokens.add(nextToken)) break
+                    paginationToken = nextToken
                 }
-            }
 
-            val tweetIds = tweetEntities.map { it.id }
-            dao.upsertTweets(tweetEntities)
-            if (tweetIds.isNotEmpty()) {
-                dao.deleteMediaByTweetIds(tweetIds)
-            }
-            if (mediaEntities.isNotEmpty()) {
-                dao.insertMedia(mediaEntities)
-            }
-            dao.trimTweetsToLimit(maxStoredTweets)
-            trimImagesToLimit(maxStoredImageBytes)
+                if (tweets.isEmpty()) {
+                    dao.trimTweetsToLimit(maxStoredTweets)
+                    trimImagesToLimit(maxStoredImageBytes)
+                    return@withContext 0
+                }
+                val bookmarkedIds = dao.getBookmarkedTweetIds(tweets.map { it.id }).toSet()
+                val (tweetEntities, mediaEntities) = buildEntities(
+                    tweets = tweets,
+                    users = users,
+                    mediaMap = mediaMap,
+                    bookmarkedIds = bookmarkedIds,
+                    downloadPhotos = true
+                )
 
-            tweetEntities.size
+                val tweetIds = tweetEntities.map { it.id }
+                dao.upsertTweets(tweetEntities)
+                if (tweetIds.isNotEmpty()) {
+                    dao.deleteMediaByTweetIds(tweetIds)
+                }
+                if (mediaEntities.isNotEmpty()) {
+                    dao.insertMedia(mediaEntities)
+                }
+                dao.trimTweetsToLimit(maxStoredTweets)
+                trimImagesToLimit(maxStoredImageBytes)
+
+                tweetEntities.size
+            } finally {
+                syncPrefs.edit()
+                    .putBoolean(KEY_LAST_REFRESH_WAS_OFFLINE, config.offlineMode)
+                    .apply()
+            }
         }
     }
 
@@ -178,7 +155,119 @@ class TimelineRepository internal constructor(
         }
     }
 
+    private suspend fun seedOfflineTimeline(preserveExistingCount: Int?): Int {
+        if (preserveExistingCount != null) {
+            dao.trimTweetsToLimit(preserveExistingCount)
+        }
+        val responses = OfflineTimelineFixtureLoader.load(app)
+        val tweets = responses.flatMap { it.data.orEmpty() }
+        if (tweets.isEmpty()) {
+            return 0
+        }
+
+        val users = linkedMapOf<String, com.example.xclient.network.UserDto>()
+        val mediaMap = linkedMapOf<String, com.example.xclient.network.MediaDto>()
+        responses.forEach { response ->
+            response.includes?.users.orEmpty().forEach { users[it.id] = it }
+            response.includes?.media.orEmpty().forEach { mediaMap[it.media_key] = it }
+        }
+
+        val bookmarkedIds = dao.getBookmarkedTweetIds(tweets.map { it.id }).toSet()
+        val (tweetEntities, mediaEntities) = buildEntities(
+            tweets = tweets,
+            users = users,
+            mediaMap = mediaMap,
+            bookmarkedIds = bookmarkedIds,
+            downloadPhotos = false
+        )
+
+        val tweetIds = tweetEntities.map { it.id }
+        dao.upsertTweets(tweetEntities)
+        if (tweetIds.isNotEmpty()) {
+            dao.deleteMediaByTweetIds(tweetIds)
+        }
+        if (mediaEntities.isNotEmpty()) {
+            dao.insertMedia(mediaEntities)
+        }
+        return tweetEntities.size
+    }
+
+    private suspend fun removeOfflineFixtureTweets() {
+        val fixtureIds = OfflineTimelineFixtureLoader.tweetIds(app)
+        if (fixtureIds.isNotEmpty()) {
+            dao.deleteTweetsByIds(fixtureIds)
+        }
+    }
+
+    private fun wasOfflineModeEnabled(): Boolean {
+        return syncPrefs.getBoolean(KEY_LAST_REFRESH_WAS_OFFLINE, false)
+    }
+
+    private fun buildEntities(
+        tweets: List<com.example.xclient.network.TweetDto>,
+        users: Map<String, com.example.xclient.network.UserDto>,
+        mediaMap: Map<String, com.example.xclient.network.MediaDto>,
+        bookmarkedIds: Set<String>,
+        downloadPhotos: Boolean
+    ): Pair<List<TweetEntity>, List<MediaEntity>> {
+        val syncedAt = System.currentTimeMillis()
+        val tweetEntities = tweets.map { tweet ->
+            val user = tweet.author_id?.let { users[it] }
+            TweetEntity(
+                id = tweet.id,
+                text = tweet.text,
+                authorName = user?.name ?: "Unknown",
+                authorUsername = user?.username ?: "unknown",
+                authorProfileImageUrl = user?.profile_image_url,
+                createdAt = tweet.created_at?.let { Instant.parse(it).toEpochMilli() } ?: 0L,
+                permalink = "https://x.com/i/web/status/${tweet.id}",
+                hasVideo = tweet.attachments?.media_keys.orEmpty().any { key ->
+                    val type = mediaMap[key]?.type
+                    type == "video" || type == "animated_gif"
+                },
+                isBookmarked = tweet.id in bookmarkedIds,
+                syncedAt = syncedAt
+            )
+        }
+
+        val mediaEntities = mutableListOf<MediaEntity>()
+        tweets.forEach { tweet ->
+            for (key in tweet.attachments?.media_keys.orEmpty()) {
+                val media = mediaMap[key] ?: continue
+                when (media.type) {
+                    "photo" -> {
+                        val sourceUrl = media.url ?: media.preview_image_url
+                        val localPath = if (downloadPhotos) {
+                            sourceUrl?.let { imageDownloader(tweet.id, key, it) }
+                        } else {
+                            null
+                        }
+                        mediaEntities += MediaEntity(
+                            tweetId = tweet.id,
+                            type = "photo",
+                            localPath = localPath,
+                            remoteUrl = sourceUrl
+                        )
+                    }
+
+                    "video", "animated_gif" -> {
+                        mediaEntities += MediaEntity(
+                            tweetId = tweet.id,
+                            type = media.type,
+                            localPath = null,
+                            remoteUrl = "https://x.com/i/web/status/${tweet.id}"
+                        )
+                    }
+                }
+            }
+        }
+        return tweetEntities to mediaEntities
+    }
+
     companion object {
+        private const val SYNC_PREFS_NAME = "timeline_sync_state"
+        private const val KEY_LAST_REFRESH_WAS_OFFLINE = "last_refresh_was_offline"
+
         fun create(application: Application): TimelineRepository {
             val config = AppConfigLoader.load(application)
             val tokenClient = OkHttpClient.Builder()

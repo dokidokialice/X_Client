@@ -5,7 +5,7 @@ api_base_url=https://api.x.com/
 auth_type=bearer
 list_id=YOUR_LIST_ID
 
-# Bearer token (no encryption in this version)
+# Bearer token (offline_mode=true のときは空でも可)
 access_token=YOUR_ACCESS_TOKEN
 # Optional: enable auto refresh when access_token expires
 refresh_token=YOUR_REFRESH_TOKEN
@@ -18,5 +18,5 @@ auth_scopes=tweet.read users.read list.read offline.access
 # 10-100
 max_results=50
 
-# true: do not call X API, show local DB only
+# true: do not call X API or run OAuth; seed bundled 200-post fixture into local DB
 offline_mode=false

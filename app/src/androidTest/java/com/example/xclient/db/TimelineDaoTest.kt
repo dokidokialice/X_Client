@@ -86,6 +86,7 @@ class TimelineDaoTest {
             text = "text-$id",
             authorName = "author",
             authorUsername = "user",
+            authorProfileImageUrl = null,
             createdAt = createdAt,
             permalink = "https://x.com/i/web/status/$id",
             hasVideo = false,

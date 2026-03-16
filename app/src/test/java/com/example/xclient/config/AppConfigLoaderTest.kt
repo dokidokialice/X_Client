@@ -36,6 +36,19 @@ class AppConfigLoaderTest {
     }
 
     @Test
+    fun fromProperties_usesCustomSchemeCallbackByDefault() {
+        val props = Properties().apply {
+            setProperty("list_id", "12345")
+            setProperty("client_id", "client")
+            setProperty("api_base_url", "https://api.x.com/")
+        }
+
+        val config = AppConfigLoader.fromProperties(props)
+
+        assertEquals("xclient://oauth/callback", config.authRedirectUri)
+    }
+
+    @Test
     fun fromProperties_throwsWhenRequiredFieldsMissing() {
         val props = Properties().apply {
             setProperty("api_base_url", "https://api.x.com/")

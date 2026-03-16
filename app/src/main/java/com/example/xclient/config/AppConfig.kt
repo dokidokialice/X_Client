@@ -35,7 +35,7 @@ object AppConfigLoader {
         val authRedirectUri = props.getProperty("auth_redirect_uri")
             ?.trim()
             .orEmpty()
-            .ifBlank { "http://127.0.0.1:8080/callback" }
+            .ifBlank { "xclient://oauth/callback" }
         val authScopes = props.getProperty("auth_scopes")
             ?.trim()
             .orEmpty()

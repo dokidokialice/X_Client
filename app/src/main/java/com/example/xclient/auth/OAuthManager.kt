@@ -108,11 +108,19 @@ class OAuthManager(
         val redirectUri = Uri.parse(config.authRedirectUri)
         val host = redirectUri.host.orEmpty()
         val isLoopback = redirectUri.scheme == "http" && (host == "127.0.0.1" || host == "localhost")
+        val isAppCallback = redirectUri.scheme == "xclient" && host == "oauth"
         val port = redirectUri.port
-        if (!isLoopback || port <= 0) {
+        if (!isLoopback && !isAppCallback) {
             _authState.value = AuthGateState(
                 phase = AuthPhase.BLOCKED,
-                message = "auth_redirect_uri は http://127.0.0.1:<port>/callback 形式で設定してください。"
+                message = "auth_redirect_uri は xclient://oauth/callback または http://127.0.0.1:<port>/callback 形式で設定してください。"
+            )
+            return
+        }
+        if (isLoopback && port <= 0) {
+            _authState.value = AuthGateState(
+                phase = AuthPhase.BLOCKED,
+                message = "loopback を使う場合の auth_redirect_uri は http://127.0.0.1:<port>/callback 形式で設定してください。"
             )
             return
         }
@@ -137,21 +145,23 @@ class OAuthManager(
             .build()
 
         loopbackJob?.cancel()
-        loopbackJob = scope.launch {
-            Log.i(TAG, "Loopback listener starting host=$host port=$port path=$redirectPath")
-            val callback = withContext(Dispatchers.IO) {
-                awaitLoopbackCallback(host = host, port = port, expectedPath = redirectPath)
+        if (isLoopback) {
+            loopbackJob = scope.launch {
+                Log.i(TAG, "Loopback listener starting host=$host port=$port path=$redirectPath")
+                val callback = withContext(Dispatchers.IO) {
+                    awaitLoopbackCallback(host = host, port = port, expectedPath = redirectPath)
+                }
+                if (callback == null) {
+                    Log.e(TAG, "Loopback callback not received")
+                    _authState.value = AuthGateState(
+                        phase = AuthPhase.BLOCKED,
+                        message = "OAuth コールバックを受信できませんでした。redirect_uri とポート設定を確認してください。"
+                    )
+                    return@launch
+                }
+                Log.i(TAG, "Loopback callback received state=${callback.state}")
+                processOAuthCallback(callback = callback, expectedState = state, verifier = verifier)
             }
-            if (callback == null) {
-                Log.e(TAG, "Loopback callback not received")
-                _authState.value = AuthGateState(
-                    phase = AuthPhase.BLOCKED,
-                    message = "OAuth コールバックを受信できませんでした。redirect_uri とポート設定を確認してください。"
-                )
-                return@launch
-            }
-            Log.i(TAG, "Loopback callback received state=${callback.state}")
-            processOAuthCallback(callback = callback, expectedState = state, verifier = verifier)
         }
 
         val browserIntent = Intent(Intent.ACTION_VIEW, authUri)
@@ -160,7 +170,11 @@ class OAuthManager(
                 Log.i(TAG, "Browser opened for OAuth authorize URL")
                 _authState.value = AuthGateState(
                     phase = AuthPhase.WAITING_CALLBACK,
-                    message = "X の認証をブラウザで完了してください。完了後に自動でトークン取得します。"
+                    message = if (isLoopback) {
+                        "X の認証をブラウザで完了してください。完了後に自動でトークン取得します。"
+                    } else {
+                        "X の認証をブラウザで完了してください。完了後にアプリへ戻ってトークン取得します。"
+                    }
                 )
             }
             .onFailure { throwable ->

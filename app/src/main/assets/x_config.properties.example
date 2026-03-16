@@ -10,8 +10,9 @@ access_token=YOUR_ACCESS_TOKEN
 # Optional: enable auto refresh when access_token expires
 refresh_token=YOUR_REFRESH_TOKEN
 client_id=YOUR_OAUTH2_CLIENT_ID
-# OAuth callback (must match X Developer Portal and AndroidManifest)
-auth_redirect_uri=http://127.0.0.1:8080/callback
+# OAuth callback (recommended: custom scheme to return to this app directly)
+# Must match X Developer Portal and AndroidManifest
+auth_redirect_uri=xclient://oauth/callback
 # Space separated scopes
 auth_scopes=tweet.read users.read list.read offline.access
 

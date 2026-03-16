@@ -16,7 +16,7 @@
    - `access_token` (Bearer Token, 任意: OAuthを使わない場合)
    - `refresh_token` (任意: access token 自動再発行用)
    - `client_id` (任意: 初回OAuthログイン / `refresh_token` 利用時は必須)
-   - `auth_redirect_uri` (OAuthコールバックURI。既定: `http://127.0.0.1:8080/callback`)
+   - `auth_redirect_uri` (OAuthコールバックURI。既定: `xclient://oauth/callback`)
    - `auth_scopes` (OAuthスコープ)
    - `api_base_url`
    - `max_results`
@@ -68,7 +68,9 @@ javascript:(()=>{const html=document.documentElement.outerHTML;const matches=[..
 3. オンライン利用する場合は、X Developer Portal で対象アプリを作成・設定
 4. `access_token` を手動設定して使う場合は `x_config.properties` の `access_token` に Bearer Token を設定
 5. 初回OAuthログインを使う場合は `client_id`（必要に応じて `auth_redirect_uri` / `auth_scopes`）を設定
+   - 推奨の callback は `xclient://oauth/callback` です
    - X Developer Portal の Callback URL に `auth_redirect_uri` と同じ値を登録
+   - `http://127.0.0.1:<port>/callback` の loopback 方式も使えますが、端末やブラウザの都合でバックグラウンド中にアプリが kill されることがあります
 6. access token を自動再発行したい場合は `refresh_token` と `client_id` を設定
 7. `x_config.properties` は `.gitignore` 対象のため、ローカルでのみ管理
 8. 実機で大量受信を再現したい場合は `offline_mode=true` に設定

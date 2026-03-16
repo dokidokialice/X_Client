@@ -13,6 +13,7 @@ import com.example.xclient.ui.AppTheme
 import com.example.xclient.ui.TimelineUiState
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,7 +43,7 @@ class TimelineScreenTest {
             count = 120,
             label = "existing"
         )
-        val anchorItem = existingItems[80]
+        val requestedAnchorItem = existingItems[80]
         val newItems = createItems(
             startId = 1900000000000002200L,
             count = 200,
@@ -50,8 +51,9 @@ class TimelineScreenTest {
         )
         val listState = LazyListState()
         var state by mutableStateOf(TimelineUiState())
+        var restoredAnchorId: String? = null
 
-        prefs.edit().putString("anchor_tweet_id", anchorItem.id).commit()
+        prefs.edit().putString("anchor_tweet_id", requestedAnchorItem.id).commit()
 
         composeRule.setContent {
             AppTheme(dynamicColor = false) {
@@ -59,7 +61,7 @@ class TimelineScreenTest {
                     state = state,
                     onRefresh = {},
                     onToggleBookmark = {},
-                    onMarkAsRead = {},
+                    onVisibleItemsChanged = {},
                     onStartLogin = {},
                     onClose = {},
                     prefs = prefs,
@@ -74,21 +76,118 @@ class TimelineScreenTest {
         composeRule.waitForIdle()
 
         composeRule.runOnIdle {
-            val visibleKeys = listState.layoutInfo.visibleItemsInfo.map { it.key }
-            assertEquals(true, anchorItem.id in visibleKeys)
+            val visibleKeys = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+            restoredAnchorId = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String
+            assertTrue(restoredAnchorId != null && visibleKeys.contains(restoredAnchorId))
         }
 
         composeRule.runOnIdle {
             state = TimelineUiState(
-                items = newItems + existingItems,
-                newPostsCount = newItems.size
+                items = newItems + existingItems
             )
         }
         composeRule.waitForIdle()
 
         composeRule.runOnIdle {
-            val visibleKeys = listState.layoutInfo.visibleItemsInfo.map { it.key }
-            assertEquals(true, anchorItem.id in visibleKeys)
+            val visibleKeys = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+            assertTrue(restoredAnchorId != null && visibleKeys.contains(restoredAnchorId))
+        }
+    }
+
+    @Test
+    fun initialRestore_keepsSavedAnchorWhenVisibleCallbackPrependsItems() {
+        val prefs = composeRule.activity.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val existingItems = createItems(
+            startId = 1800000000000000120L,
+            count = 120,
+            label = "existing"
+        )
+        val requestedAnchorItem = existingItems[80]
+        val newItems = createItems(
+            startId = 1900000000000002200L,
+            count = 200,
+            label = "new"
+        )
+        val listState = LazyListState()
+        var state by mutableStateOf(TimelineUiState())
+        var hasPrependedNewItems by mutableStateOf(false)
+
+        prefs.edit().putString("anchor_tweet_id", requestedAnchorItem.id).commit()
+
+        composeRule.setContent {
+            AppTheme(dynamicColor = false) {
+                TimelineScreenContent(
+                    state = state,
+                    onRefresh = {},
+                    onToggleBookmark = {},
+                    onVisibleItemsChanged = {
+                        if (!hasPrependedNewItems) {
+                            hasPrependedNewItems = true
+                            state = state.copy(
+                                items = newItems + state.items,
+                                unreadPostsCount = newItems.size,
+                                oldestUnreadPostId = newItems.lastOrNull()?.id
+                            )
+                        }
+                    },
+                    onStartLogin = {},
+                    onClose = {},
+                    prefs = prefs,
+                    listState = listState
+                )
+            }
+        }
+
+        composeRule.runOnIdle {
+            state = TimelineUiState(items = existingItems)
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            val visibleKeys = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+            assertTrue(visibleKeys.contains(requestedAnchorItem.id))
+        }
+    }
+
+    @Test
+    fun initialLaunch_withoutSavedAnchor_scrollsToOldestUnread() {
+        val prefs = composeRule.activity.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val items = createItems(
+            startId = 1800000000000000120L,
+            count = 120,
+            label = "existing"
+        )
+        val oldestUnreadItem = items[119]
+        val listState = LazyListState()
+        var state by mutableStateOf(TimelineUiState())
+
+        composeRule.setContent {
+            AppTheme(dynamicColor = false) {
+                TimelineScreenContent(
+                    state = state,
+                    onRefresh = {},
+                    onToggleBookmark = {},
+                    onVisibleItemsChanged = {},
+                    onStartLogin = {},
+                    onClose = {},
+                    prefs = prefs,
+                    listState = listState
+                )
+            }
+        }
+
+        composeRule.runOnIdle {
+            state = TimelineUiState(
+                items = items,
+                unreadPostsCount = 20,
+                oldestUnreadPostId = oldestUnreadItem.id
+            )
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            val visibleKeys = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+            assertTrue(visibleKeys.contains(oldestUnreadItem.id))
         }
     }
 

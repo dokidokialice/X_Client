@@ -19,13 +19,16 @@ data class TimelineUiState(
     val errorMessage: String? = null,
     val blockingErrorMessage: String? = null,
     val lastFetchedCount: Int = 0,
-    val newPostsCount: Int = 0
+    val unreadPostsCount: Int = 0,
+    val oldestUnreadPostId: String? = null
 )
 
 class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
     private val _uiState = MutableStateFlow(TimelineUiState())
     val uiState: StateFlow<TimelineUiState> = _uiState.asStateFlow()
-    private var lastSeenTopId: String? = null
+    private val knownPostIds = linkedSetOf<String>()
+    private val unreadPostIds = linkedSetOf<String>()
+    private val offlineFixturePostIds by lazy { repository.getOfflineFixturePostIds() }
 
     init {
         observeTimeline()
@@ -70,21 +73,41 @@ class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
         viewModelScope.launch {
             repository.observeTimeline().collect { rows ->
                 val items = rows.map { it.toTimelineItem() }
-                if (lastSeenTopId == null && items.isNotEmpty()) {
-                    lastSeenTopId = items.first().id
+                val currentIds = items.map { it.id }
+                if (knownPostIds.isEmpty()) {
+                    knownPostIds += currentIds
+                    unreadPostIds.clear()
+                    if (repository.isOfflineModeEnabled()) {
+                        unreadPostIds += currentIds.filter { it in offlineFixturePostIds }
+                    }
+                } else {
+                    unreadPostIds.retainAll(currentIds.toSet())
+                    val newIds = currentIds.filter { it !in knownPostIds }
+                    unreadPostIds += newIds
+                    knownPostIds.clear()
+                    knownPostIds += currentIds
                 }
-                val newCount = lastSeenTopId
-                    ?.let { topId -> items.indexOfFirst { it.id == topId } }
-                    ?.coerceAtLeast(0) ?: 0
-                _uiState.update { it.copy(items = items, newPostsCount = newCount) }
+                _uiState.update {
+                    it.copy(
+                        items = items,
+                        unreadPostsCount = unreadPostIds.size,
+                        oldestUnreadPostId = items.lastOrNull { item -> item.id in unreadPostIds }?.id
+                    )
+                }
             }
         }
     }
 
-    fun markAsRead() {
-        val topId = _uiState.value.items.firstOrNull()?.id ?: return
-        lastSeenTopId = topId
-        _uiState.update { it.copy(newPostsCount = 0) }
+    fun markVisiblePosts(postIds: Collection<String>) {
+        if (postIds.isEmpty()) return
+        val changed = unreadPostIds.removeAll(postIds.toSet())
+        if (!changed) return
+        _uiState.update { state ->
+            state.copy(
+                unreadPostsCount = unreadPostIds.size,
+                oldestUnreadPostId = state.items.lastOrNull { item -> item.id in unreadPostIds }?.id
+            )
+        }
     }
 
     private fun TweetWithMedia.toTimelineItem(): TimelineItem {

@@ -2,6 +2,10 @@
 
 指定した X のリストを取得し、新着投稿のみを Room(SQLite) に保存して表示する Android アプリです。
 
+オンラインで X API を使う場合は、X Developer Portal 側でアプリ設定が必要です。
+現状、このアプリ内で用意している認証導線は OAuth ログインです。
+ただし `access_token` を `x_config.properties` に手動設定して使うこともできます。
+
 ## 仕様
 
 0. APIレベル
@@ -53,12 +57,21 @@
 
 1. `app/src/main/assets/x_config.properties.example` をコピーして `app/src/main/assets/x_config.properties` を作成
 2. `x_config.properties` の `list_id` に取得対象リスト ID を設定
-3. `x_config.properties` の `access_token` に Bearer Token を設定
-4. 初回OAuthログインを使う場合は `client_id`（必要に応じて `auth_redirect_uri` / `auth_scopes`）を設定
+   - Chrome では URL 欄に表示されないことがあるため、必要に応じて DevTools (`F12`) などで対象リストの ID を確認してください
+   - 簡易的には、次のブックマークレットをブックマークURLとして登録し、X の対象リストページ上で実行すると候補の数値IDを表示できます
+
+```javascript
+javascript:(()=>{const html=document.documentElement.outerHTML;const matches=[...html.matchAll(/"rest_id":"(\d+)"/g)].map(m=>m[1]);const ids=[...new Set(matches)];if(ids.length===0){alert("List ID candidate not found");return;}alert("List ID candidates:\\n"+ids.join("\\n"));})();
+```
+
+   - X の内部HTML構造が変わると動かなくなる可能性があります
+3. オンライン利用する場合は、X Developer Portal で対象アプリを作成・設定
+4. `access_token` を手動設定して使う場合は `x_config.properties` の `access_token` に Bearer Token を設定
+5. 初回OAuthログインを使う場合は `client_id`（必要に応じて `auth_redirect_uri` / `auth_scopes`）を設定
    - X Developer Portal の Callback URL に `auth_redirect_uri` と同じ値を登録
-5. access token を自動再発行したい場合は `refresh_token` と `client_id` を設定
-6. `x_config.properties` は `.gitignore` 対象のため、ローカルでのみ管理
-7. 実機で大量受信を再現したい場合は `offline_mode=true` に設定
+6. access token を自動再発行したい場合は `refresh_token` と `client_id` を設定
+7. `x_config.properties` は `.gitignore` 対象のため、ローカルでのみ管理
+8. 実機で大量受信を再現したい場合は `offline_mode=true` に設定
    - 起動時/更新時に同梱の 200 件テストデータを読み込みます
    - `offline_mode=true` の間は `access_token` / `client_id` が空でも起動できます
    - `false -> true` 切り替え時は、既存タイムラインの最新 99 件だけ残してテストデータを追加します

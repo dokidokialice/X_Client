@@ -41,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text as M3Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,6 +63,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -73,6 +76,8 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -204,7 +209,7 @@ private fun TimelineScreen(viewModel: MainViewModel = viewModel(), onStartLogin:
         state = state,
         onRefresh = { viewModel.refresh() },
         onToggleBookmark = { item -> viewModel.toggleBookmark(item) },
-        onMarkAsRead = { viewModel.markAsRead() },
+        onVisibleItemsChanged = { ids -> viewModel.markVisiblePosts(ids) },
         onStartLogin = onStartLogin,
         onClose = { (context as? Activity)?.finishAffinity() },
         prefs = prefs
@@ -217,7 +222,7 @@ internal fun TimelineScreenContent(
     state: TimelineUiState,
     onRefresh: () -> Unit,
     onToggleBookmark: (TimelineItem) -> Unit,
-    onMarkAsRead: () -> Unit,
+    onVisibleItemsChanged: (Set<String>) -> Unit,
     onStartLogin: () -> Unit,
     onClose: () -> Unit,
     prefs: android.content.SharedPreferences,
@@ -225,13 +230,48 @@ internal fun TimelineScreenContent(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val topContentPaddingPx = remember(density) { with(density) { 12.dp.roundToPx() } }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val latestState by rememberUpdatedState(state)
     var initialPositionRestoreStarted by rememberSaveable { mutableStateOf(false) }
     var initialPositionRestoreCompleted by rememberSaveable { mutableStateOf(false) }
     var viewportAnchorId by rememberSaveable { mutableStateOf<String?>(null) }
     var viewportAnchorOffset by rememberSaveable { mutableStateOf(0) }
     var viewportWasAtTop by rememberSaveable { mutableStateOf(true) }
+    var allowNextIdleViewportUpdate by rememberSaveable { mutableStateOf(false) }
+    var pendingDatasetCorrectionAnchorId by rememberSaveable { mutableStateOf<String?>(null) }
     var expandedImagePath by rememberSaveable { mutableStateOf<String?>(null) }
+    fun currentViewportAnchor(): Pair<String?, Int> {
+        val fullyVisibleItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.offset >= 0 }
+        val anchorKey = (fullyVisibleItem?.key ?: listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key) as? String
+        val anchorOffset = when {
+            fullyVisibleItem != null -> fullyVisibleItem.offset.coerceAtLeast(0)
+            else -> listState.firstVisibleItemScrollOffset.coerceAtLeast(0)
+        }
+        return anchorKey to anchorOffset
+    }
+    fun shouldDeferViewportUpdate(currentAnchorId: String?): Boolean {
+        val preservedAnchorId = viewportAnchorId ?: return false
+        if (viewportWasAtTop || listState.isScrollInProgress) return false
+        if (currentAnchorId == null || currentAnchorId == preservedAnchorId) return false
+        return latestState.items.any { item -> item.id == preservedAnchorId }
+    }
+    fun persistViewportAnchor(sync: Boolean) {
+        val (anchorIdFromLayout, anchorOffset) = currentViewportAnchor()
+        val anchorId = anchorIdFromLayout
+            ?: viewportAnchorId
+            ?: latestState.items.getOrNull(listState.firstVisibleItemIndex)?.id
+            ?: return
+        val editor = prefs.edit()
+            .putString(KEY_ANCHOR_TWEET_ID, anchorId)
+            .putInt(KEY_ANCHOR_SCROLL_OFFSET, anchorOffset)
+        if (sync) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
+    }
 
     LaunchedEffect(state.errorMessage, state.blockingErrorMessage) {
         if (state.blockingErrorMessage != null) return@LaunchedEffect
@@ -257,22 +297,34 @@ internal fun TimelineScreenContent(
         snapshotFlow { latestState.items }.first { it.isNotEmpty() }
         if (initialPositionRestoreStarted) return@LaunchedEffect
         initialPositionRestoreStarted = true  // scrollToItem の前にセットして再入を防ぐ
-        val anchorTweetId = prefs.getString(KEY_ANCHOR_TWEET_ID, null)
+        val anchorTweetId = prefs.getString(KEY_ANCHOR_TWEET_ID, null) ?: latestState.oldestUnreadPostId
+        val anchorScrollOffset = prefs.getInt(KEY_ANCHOR_SCROLL_OFFSET, 0)
         val anchorIndex = anchorTweetId
             ?.let { targetId -> latestState.items.indexOfFirst { it.id == targetId } }
             ?.takeIf { it >= 0 }
             ?: 0
-        listState.scrollToItem(anchorIndex)
+        viewportAnchorId = latestState.items.getOrNull(anchorIndex)?.id
+        viewportAnchorOffset = if (anchorTweetId == latestState.oldestUnreadPostId) {
+            if (anchorIndex == 0) 0 else topContentPaddingPx
+        } else if (anchorIndex == 0) {
+            0
+        } else {
+            anchorScrollOffset
+        }
+        viewportWasAtTop = anchorIndex == 0
+        listState.scrollToItem(anchorIndex, viewportAnchorOffset)
         initialPositionRestoreCompleted = true
     }
 
     LaunchedEffect(state.items, initialPositionRestoreCompleted) {
         if (!initialPositionRestoreCompleted || viewportWasAtTop) return@LaunchedEffect
         val anchorId = viewportAnchorId ?: return@LaunchedEffect
+        pendingDatasetCorrectionAnchorId = anchorId
         val targetIndex = latestState.items.indexOfFirst { it.id == anchorId }
         if (targetIndex >= 0 && targetIndex != listState.firstVisibleItemIndex) {
             listState.scrollToItem(targetIndex, viewportAnchorOffset)
         }
+        pendingDatasetCorrectionAnchorId = null
     }
 
     // state.items をキーにすると投稿追加のたびに再起動し、保存タイミングがずれる。
@@ -280,14 +332,63 @@ internal fun TimelineScreenContent(
     LaunchedEffect(listState, initialPositionRestoreCompleted) {
         if (!initialPositionRestoreCompleted) return@LaunchedEffect
         snapshotFlow {
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-        }.collect { (index, offset) ->
+            val (anchorKey, anchorOffset) = currentViewportAnchor()
+            Triple(listState.firstVisibleItemIndex, anchorOffset, anchorKey)
+        }.collect { (index, offset, anchorKey) ->
+            val currentAnchorId = anchorKey ?: latestState.items.getOrNull(index)?.id
+            if (listState.isScrollInProgress) {
+                allowNextIdleViewportUpdate = true
+            }
+            if (pendingDatasetCorrectionAnchorId != null && currentAnchorId != pendingDatasetCorrectionAnchorId) {
+                return@collect
+            }
+            val shouldAcceptSettledUserScroll = allowNextIdleViewportUpdate && !listState.isScrollInProgress
+            if (shouldDeferViewportUpdate(currentAnchorId) && !shouldAcceptSettledUserScroll) {
+                return@collect
+            }
             viewportWasAtTop = index == 0
             viewportAnchorOffset = offset
-            if (index == 0) onMarkAsRead()
-            val anchorId = latestState.items.getOrNull(index)?.id ?: return@collect
+            val anchorId = currentAnchorId ?: return@collect
             viewportAnchorId = anchorId
-            prefs.edit().putString(KEY_ANCHOR_TWEET_ID, anchorId).apply()
+            if (!listState.isScrollInProgress) {
+                allowNextIdleViewportUpdate = false
+            }
+            persistViewportAnchor(sync = false)
+        }
+    }
+
+    LaunchedEffect(listState, initialPositionRestoreCompleted, onVisibleItemsChanged) {
+        if (!initialPositionRestoreCompleted) return@LaunchedEffect
+        snapshotFlow {
+            Pair(
+                currentViewportAnchor().first,
+                listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet()
+            )
+        }.collect { (firstVisibleKey, visibleIds) ->
+            if (pendingDatasetCorrectionAnchorId != null || visibleIds.isEmpty()) {
+                return@collect
+            }
+            val shouldAcceptSettledUserScroll = allowNextIdleViewportUpdate && !listState.isScrollInProgress
+            if (shouldDeferViewportUpdate(firstVisibleKey) && !shouldAcceptSettledUserScroll) {
+                return@collect
+            }
+            onVisibleItemsChanged(visibleIds)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, initialPositionRestoreCompleted) {
+        if (!initialPositionRestoreCompleted) {
+            return@DisposableEffect onDispose { }
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                persistViewportAnchor(sync = true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            persistViewportAnchor(sync = true)
         }
     }
 
@@ -344,17 +445,21 @@ internal fun TimelineScreenContent(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            if (state.newPostsCount > 0 && !state.refreshing) {
+            if (state.unreadPostsCount > 0 && !state.refreshing) {
                 Button(
                     onClick = {
-                        onMarkAsRead()
-                        scope.launch { listState.scrollToItem(0) }
+                        val unreadIndex = state.oldestUnreadPostId
+                            ?.let { unreadId -> state.items.indexOfFirst { item -> item.id == unreadId } }
+                            ?.takeIf { it >= 0 }
+                            ?: 0
+                        val unreadOffset = if (unreadIndex == 0) 0 else topContentPaddingPx
+                        scope.launch { listState.scrollToItem(unreadIndex, unreadOffset) }
                     },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 8.dp)
                 ) {
-                    M3Text(text = "↑ ${state.newPostsCount}件の新着")
+                    M3Text(text = "↑ ${state.unreadPostsCount}件の未読")
                 }
             }
         }
@@ -543,6 +648,7 @@ private fun formatDate(epochMillis: Long): String {
 
 private const val PREFS_NAME = "timeline_prefs"
 private const val KEY_ANCHOR_TWEET_ID = "anchor_tweet_id"
+private const val KEY_ANCHOR_SCROLL_OFFSET = "anchor_scroll_offset"
 internal const val TIMELINE_LIST_TAG = "timeline_list"
 
 private fun openInXClient(context: Context, permalink: String) {

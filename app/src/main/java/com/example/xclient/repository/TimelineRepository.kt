@@ -41,9 +41,16 @@ class TimelineRepository internal constructor(
 ) {
     private val maxStoredTweets = 4999
     private val maxStoredImageBytes = 1L * 1024 * 1024 * 1024 // 1GB
+    private val cachedOfflineFixturePostIds: Set<String> by lazy {
+        if (config.offlineMode) OfflineTimelineFixtureLoader.tweetIds(app).toSet() else emptySet()
+    }
     private val syncPrefs: SharedPreferences by lazy {
         app.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
     }
+
+    fun isOfflineModeEnabled(): Boolean = config.offlineMode
+
+    fun getOfflineFixturePostIds(): Set<String> = cachedOfflineFixturePostIds
 
     fun observeTimeline(): Flow<List<TweetWithMedia>> = dao.observeTimeline()
 

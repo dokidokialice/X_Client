@@ -49,6 +49,38 @@ class AppConfigLoaderTest {
     }
 
     @Test
+    fun fromProperties_treatsExamplePlaceholdersAsBlank() {
+        val props = Properties().apply {
+            setProperty("list_id", "12345")
+            setProperty("access_token", "YOUR_ACCESS_TOKEN")
+            setProperty("refresh_token", "YOUR_REFRESH_TOKEN")
+            setProperty("client_id", "real-client-id")
+            setProperty("api_base_url", "https://api.x.com/")
+        }
+
+        val config = AppConfigLoader.fromProperties(props)
+
+        assertEquals("", config.accessToken)
+        assertEquals("", config.refreshToken)
+        assertEquals("real-client-id", config.clientId)
+        assertTrue(config.canStartOAuthLogin)
+    }
+
+    @Test
+    fun fromProperties_rejectsRequiredPlaceholders() {
+        val props = Properties().apply {
+            setProperty("list_id", "YOUR_LIST_ID")
+            setProperty("access_token", "YOUR_ACCESS_TOKEN")
+            setProperty("client_id", "YOUR_OAUTH2_CLIENT_ID")
+            setProperty("api_base_url", "https://api.x.com/")
+        }
+
+        val error = runCatching { AppConfigLoader.fromProperties(props) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
     fun fromProperties_throwsWhenRequiredFieldsMissing() {
         val props = Properties().apply {
             setProperty("api_base_url", "https://api.x.com/")

@@ -143,6 +143,7 @@ class OAuthManager(
             .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("code_challenge_method", "S256")
             .build()
+        Log.i(TAG, "Authorize URL redirect_uri=${config.authRedirectUri} scopes=${config.authScopes} hasState=${state.isNotBlank()} hasChallenge=${challenge.isNotBlank()}")
 
         loopbackJob?.cancel()
         if (isLoopback) {
@@ -164,8 +165,13 @@ class OAuthManager(
             }
         }
 
-        val browserIntent = Intent(Intent.ACTION_VIEW, authUri)
-        runCatching { onStartActivity(browserIntent) }
+        val openResult = buildBrowserIntents(authUri)
+            .firstNotNullOfOrNull { intent ->
+                runCatching { onStartActivity(intent) }
+                    .onFailure { throwable -> Log.w(TAG, "OAuth browser intent failed package=${intent.`package`}", throwable) }
+                    .takeIf { it.isSuccess }
+            } ?: Result.failure(IllegalStateException("No browser could open OAuth authorize URL"))
+        openResult
             .onSuccess {
                 Log.i(TAG, "Browser opened for OAuth authorize URL")
                 _authState.value = AuthGateState(
@@ -320,6 +326,15 @@ class OAuthManager(
         }.onFailure { t -> Log.e(TAG, "Token exchange exception", t) }.getOrNull()
     }
 
+    private fun buildBrowserIntents(authUri: Uri): List<Intent> {
+        val baseIntent = Intent(Intent.ACTION_VIEW, authUri)
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+        val browserIntents = PREFERRED_BROWSER_PACKAGES.map { packageName ->
+            Intent(baseIntent).setPackage(packageName)
+        }
+        return browserIntents + Intent.createChooser(baseIntent, "Open OAuth in browser")
+    }
+
     companion object {
         const val PREFS_AUTH = "auth_tokens"
         const val KEY_ACCESS_TOKEN = "access_token"
@@ -330,6 +345,15 @@ class OAuthManager(
         private const val AUTHORIZE_ENDPOINT = "https://x.com/i/oauth2/authorize"
         private const val TOKEN_ENDPOINT = "https://api.x.com/2/oauth2/token"
         private const val TAG = "OAuthFlow"
+        private val PREFERRED_BROWSER_PACKAGES = listOf(
+            "com.android.chrome",
+            "org.mozilla.firefox",
+            "com.microsoft.emmx",
+            "com.brave.browser",
+            "com.opera.browser",
+            "com.sec.android.app.sbrowser",
+            "com.android.browser"
+        )
     }
 }
 

@@ -14,10 +14,14 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import retrofit2.HttpException
+import retrofit2.Response
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
@@ -81,6 +85,25 @@ class MainViewModelTest {
 
         assertEquals(2, viewModel.uiState.value.unreadPostsCount)
         assertEquals("201", viewModel.uiState.value.oldestUnreadPostId)
+    }
+
+    @Test
+    fun refresh_402ShowsCreditAndBillingMessage() = runTest(dispatcher) {
+        val repository = mockk<TimelineRepository> {
+            every { observeTimeline() } returns MutableStateFlow(emptyList())
+            coEvery { refresh() } throws HttpException(
+                Response.error<Unit>(402, "payment required".toResponseBody())
+            )
+            every { isOfflineModeEnabled() } returns false
+            every { getOfflineFixturePostIds() } returns emptySet()
+        }
+        val viewModel = MainViewModel(repository)
+
+        advanceUntilIdle()
+
+        val message = viewModel.uiState.value.blockingErrorMessage.orEmpty()
+        assertTrue(message.contains("クレジット"))
+        assertEquals(null, viewModel.uiState.value.errorMessage)
     }
 
     private fun rows(vararg ids: String): List<TweetWithMedia> {

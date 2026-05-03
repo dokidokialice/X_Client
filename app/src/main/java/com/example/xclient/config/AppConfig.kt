@@ -28,19 +28,15 @@ object AppConfigLoader {
     }
 
     internal fun fromProperties(props: Properties): AppConfig {
-        val listId = props.getProperty("list_id")?.trim().orEmpty()
-        val accessToken = props.getProperty("access_token")?.trim().orEmpty()
-        val refreshToken = props.getProperty("refresh_token")?.trim().orEmpty()
-        val clientId = props.getProperty("client_id")?.trim().orEmpty()
-        val authRedirectUri = props.getProperty("auth_redirect_uri")
-            ?.trim()
-            .orEmpty()
+        val listId = props.cleanProperty("list_id")
+        val accessToken = props.cleanProperty("access_token")
+        val refreshToken = props.cleanProperty("refresh_token")
+        val clientId = props.cleanProperty("client_id")
+        val authRedirectUri = props.cleanProperty("auth_redirect_uri")
             .ifBlank { "xclient://oauth/callback" }
-        val authScopes = props.getProperty("auth_scopes")
-            ?.trim()
-            .orEmpty()
+        val authScopes = props.cleanProperty("auth_scopes")
             .ifBlank { "tweet.read users.read list.read offline.access" }
-        val apiBaseUrl = props.getProperty("api_base_url")?.trim().orEmpty()
+        val apiBaseUrl = props.cleanProperty("api_base_url")
         val maxResults = props.getProperty("max_results")?.toIntOrNull() ?: 50
         val offlineMode = props.getProperty("offline_mode")
             ?.trim()
@@ -71,4 +67,13 @@ object AppConfigLoader {
             offlineMode = offlineMode
         )
     }
+}
+
+private fun Properties.cleanProperty(name: String): String {
+    val value = getProperty(name)?.trim().orEmpty()
+    return if (value.isPlaceholderValue()) "" else value
+}
+
+private fun String.isPlaceholderValue(): Boolean {
+    return uppercase().startsWith("YOUR_")
 }

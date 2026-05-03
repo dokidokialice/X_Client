@@ -130,6 +130,9 @@ class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
     private fun toBillingBlockingMessageOrNull(throwable: Throwable): String? {
         val http = throwable as? HttpException ?: return null
         if (http.code() !in listOf(400, 401, 402, 403, 429)) return null
+        if (http.code() == 402) {
+            return "X APIのクレジットまたは支払い設定が不足しています。Developer Portalでクレジット残高、プラン、支払い方法を確認してから再試行してください。"
+        }
 
         val bodyText = runCatching { http.response()?.errorBody()?.string().orEmpty() }.getOrDefault("")
         val combined = "${http.message().orEmpty()} $bodyText".lowercase()
@@ -146,7 +149,7 @@ class MainViewModel(private val repository: TimelineRepository) : ViewModel() {
         val matched = billingKeywords.any { it in combined }
         if (!matched) return null
 
-        return "X APIの利用には支払い設定が必要です。Developer Portalで支払い方法を設定してから再試行してください。"
+        return "X APIのクレジットまたは支払い設定が不足しています。Developer Portalでクレジット残高、プラン、支払い方法を確認してから再試行してください。"
     }
 
     private fun toInitialAuthBlockingMessageOrNull(
